@@ -25,18 +25,16 @@ class RelayCmd(IntEnum):
 def pack_cell(circID : int, cellCmd : int, payload: bytes) -> bytes:
     assert circID.bit_length != 16, "Unexpected Length of Circuit ID."
     assert cellCmd.bit_length != 8, "Unexpected Length of Circuit ID."
-    assert payload.bit_length <= CELL_BODY_LEN, "Length of payload exceeded"
+    assert len(payload) <= CELL_BODY_LEN, "Length of payload exceeded"
     
     padding = b'\x00' * (CELL_BODY_LEN - len(payload))
     
     
     padded_payload = payload + padding
     assert padded_payload
-    struct.pack('>HB509s', circID, cellCmd, padded_payload)
+    packed_cell = struct.pack('>HB509s', circID, cellCmd, padded_payload)
+    return packed_cell
 
 
-    
-
-    
 
 
