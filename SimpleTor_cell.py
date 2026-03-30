@@ -36,8 +36,8 @@ class RelayCmd(IntEnum):
     EXTENDED = 7
 
 def pack_cell(circID : int, cellCmd : int, payload: bytes) -> bytes:
-    assert circID.bit_length <=  CIRCID_ID_LEN * 8, "pack_cell(): Unexpected Length of Circuit ID."
-    assert cellCmd.bit_length <= CELL_CMD_LEN * 8, "pack_cell(): Unexpected Length of Circuit Command."
+    assert 0 <= circID <= 65535, "pack_cell(): Unexpected Length of Circuit ID"
+    assert 0 <= cellCmd <= 255, "pack_cell(): Unexpected Length of Circuit Command"
     assert len(payload) <= CELL_BODY_LEN, "pack_cell(): Length of payload exceeded"
     try:
         padding = b'\x00' * (CELL_BODY_LEN - len(payload))
@@ -47,7 +47,6 @@ def pack_cell(circID : int, cellCmd : int, payload: bytes) -> bytes:
         print(f"Unexpected Error when packing Circuit Cell: {e}")
 
     #assert len(packed_cell) == CELL_LEN, "pack_cell(): Unexpected length of Circuit Cell." 
-
     return packed_cell
 
 def unpack_cell(in_cell : bytes):
@@ -62,9 +61,9 @@ def unpack_cell(in_cell : bytes):
 
 def pack_relayCell(relayCmd :int, streamID : int, data : bytes) -> bytes:
     data_len = len(data)
-    assert relayCmd.bit_length <= RELAY_CELL_CMD_LEN * 8, "pack_relayCell(): Unexpected Length of Relay ID."
-    assert streamID.bit_length <= RELAY_CELL_STREAM_ID_LEN * 8, "pack_relayCell(): Unexpected Length of stream ID."
-    assert data_len == RELAY_CELL_DATA_LEN, "pack_relayCell(): Unexpected Length of Data."
+    assert 0 <= relayCmd <= 255, "pack_relayCell(): Unexpected Length of Relay ID"
+    assert 0 <= streamID <= 65535 <= (RELAY_CELL_STREAM_ID_LEN * 8), "pack_relayCell(): Unexpected Length of stream ID"
+    assert data_len == RELAY_CELL_DATA_LEN, "pack_relayCell(): Unexpected Length of Data"
 
     try:
         padding = b'\x00' * (RELAY_CELL_DATA_LEN - data_len)

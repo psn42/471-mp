@@ -5,7 +5,7 @@ import SimpleTor_cell as stc
 
 class SimpleTorStructTest(unittest.TestCase):
     
-    def test_Padding(self):
+    def test_pack_cell(self):
         circID = 1
         cmd = stc.CellCmd.RELAY
         payload = b'Test payload for padding'
@@ -13,6 +13,9 @@ class SimpleTorStructTest(unittest.TestCase):
         cell = stc.pack_cell(circID, cmd, payload)
         
         self.assertEqual(len(cell), stc.CELL_LEN,"Cell length is not equal to 512")
+        
+        expected_cell = b'\x00\x01\x03' + payload + b'\x00' * (512-27)
+        self.assertEqual(expected_cell,cell, "Unexpected Cell value")
 
     def test_unpack_cell(self):
         circID = 1
