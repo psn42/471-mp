@@ -77,7 +77,7 @@ def pack_relayCell(relayCmd :int, streamID : int, data : bytes) -> bytes:
     return packed_relay_cell
 
 def unpack_relay_cell(in_cell : bytes):
-    assert(len(in_cell) == RELAY_CELL_LEN, "unpack_relay_cell(): Unexpected Relay Cell Length")
+    assert len(in_cell) == RELAY_CELL_LEN, "unpack_relay_cell(): Unexpected Relay Cell Length"
     try:
         relayCmd, recognized, streamID, digest, data_len, data = struct.unpack('>BHH4sH498s', in_cell)
     except Exception as e:
