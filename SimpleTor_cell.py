@@ -35,6 +35,13 @@ def pack_cell(circID : int, cellCmd : int, payload: bytes) -> bytes:
     packed_cell = struct.pack('>HB509s', circID, cellCmd, padded_payload)
     return packed_cell
 
+def unpack_cell(in_cell : bytes):
+    assert len(in_cell) == CELL_LEN, "Unexpected Length of Cell"
+
+    circID, cellCmd, payload = struct.unpack('>HB509s', in_cell)
+    return circID, cellCmd, payload
+
+
 
 
 
