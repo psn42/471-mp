@@ -62,24 +62,22 @@ def unpack_cell(in_cell : bytes):
 def pack_relayCell(relayCmd :int, streamID : int, data : bytes) -> bytes:
     data_len = len(data)
     assert 0 <= relayCmd <= 255, "pack_relayCell(): Unexpected Length of Relay ID"
-    assert 0 <= streamID <= 65535 <= (RELAY_CELL_STREAM_ID_LEN * 8), "pack_relayCell(): Unexpected Length of stream ID"
-    assert data_len == RELAY_CELL_DATA_LEN, "pack_relayCell(): Unexpected Length of Data"
+    assert 0 <= streamID <= 65535, "pack_relayCell(): Unexpected Length of stream ID"
+    assert data_len <= RELAY_CELL_DATA_LEN, "pack_relayCell(): Unexpected Length of Data"
 
     try:
         padding = b'\x00' * (RELAY_CELL_DATA_LEN - data_len)
         recognized = 0
-        digest = '\x00' * 4 # Simplified for the prototype
+        digest = b'\x00' * 4 # Simplified for the prototype
         padded_data = data + padding
-        packed_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, digest, data_len,data,padded_data)
+        packed_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, digest, data_len,padded_data)
     except Exception as e:
         print(f"Unexpected Error when packing Relay Cell: {e}")   
-
-
-    
+       
     return packed_relay_cell
         
 
-        
+
         
         
     
