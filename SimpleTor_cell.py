@@ -1,6 +1,7 @@
 import struct
 from enum import IntEnum
 import hashlib
+import SimpleTor_crypto_utils as crypto
 #length of parameters for Circuit cell
 
 CELL_LEN = 512
@@ -68,9 +69,11 @@ def pack_relayCell(relayCmd :int, streamID : int, data : bytes) -> bytes:
     try:
         padding = b'\x00' * (RELAY_CELL_DATA_LEN - data_len)
         recognized = 0
-        digest = b'\x00' * 4 # Simplified for the prototype
         padded_data = data + padding
-        packed_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, digest, data_len,padded_data)
+        dummy_digest = b'\x00\x00\x00\x00'
+        temp_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, dummy_digest, data_len, padded_data)
+        calculated_digest = crypto.calculate_digest(temp_cell)
+        packed_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, calculated_digest, data_len, padded_data)
     except Exception as e:
         print(f"Unexpected Error when packing Relay Cell: {e}")   
        
@@ -84,6 +87,14 @@ def unpack_relay_cell(in_cell : bytes):
         print(f"Unexpected Error When Unpacking Relay Cell: {e}")
         
     return relayCmd, recognized, streamID, digest, data_len, data
+
+def verify_relay_cell(received_509_bytes: bytes) -> bool:
+    received_digest = received_509_bytes[5:9]
+    zeroed_cell = received_509_bytes[:5] + b'\x00\x00\x00\x00' + received_509_bytes[9:]
+    expected_digest = crypto.calculate_digest(zeroed_cell)
+    
+    import hmac
+    return hmac.compare_digest(expected_digest, received_digest)
 
 
     
