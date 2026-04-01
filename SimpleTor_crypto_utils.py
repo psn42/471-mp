@@ -19,31 +19,34 @@ def compute_shared_secret(private_key, peer_public_bytes: bytes) -> bytes:
     peer_public_key = x25519.X25519PublicKey.from_public_bytes(peer_public_bytes)
     return private_key.exchange(peer_public_key)
 
-def derive_keys(shared_secret: bytes) -> tuple[bytes, bytes]:
+def derive_tor_keys(shared_secret: bytes):
     hkdf = HKDF(
         algorithm=hashes.SHA256(),
-        length=32,
+        length=72,
         salt=None,
-        info=b'simple_tor_key_expansion',
+        info=b'tor-prototype-key-expansion',
         backend=default_backend()
     )
     key_material = hkdf.derive(shared_secret)
-    return key_material[:16], key_material[16:]
+    fwd_digest_key = key_material[0:20]
+    bwd_digest_key = key_material[20:40]
+    fwd_aes_key = key_material[40:56]
+    bwd_aes_key = key_material[56:72]
+    return fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key
 
-def process_crypto_layer(aes_key: bytes, iv: bytes, data: bytes) -> bytes:
-    cipher = Cipher(algorithms.AES(aes_key), modes.CTR(iv), backend=default_backend())
-    encryptor = cipher.encryptor()
-    return encryptor.update(data) + encryptor.finalize()
+def create_client_ciphers(fwd_aes_key: bytes, bwd_aes_key: bytes):
+    zero_iv = b'\x00' * 16
+    fwd_cipher = Cipher(algorithms.AES(fwd_aes_key), modes.CTR(zero_iv), backend=default_backend()).encryptor()
+    bwd_cipher = Cipher(algorithms.AES(bwd_aes_key), modes.CTR(zero_iv), backend=default_backend()).decryptor()
+    return fwd_cipher, bwd_cipher
 
-def onion_encrypt(key_iv_pairs: list[tuple[bytes, bytes]], payload: bytes) -> bytes:
-    encrypted_payload = payload
-    for aes_key, iv in reversed(key_iv_pairs):
-        encrypted_payload = process_crypto_layer(aes_key, iv, encrypted_payload)
-    return encrypted_payload
+def create_relay_ciphers(fwd_aes_key: bytes, bwd_aes_key: bytes):
+    zero_iv = b'\x00' * 16
+    fwd_cipher = Cipher(algorithms.AES(fwd_aes_key), modes.CTR(zero_iv), backend=default_backend()).decryptor()
+    bwd_cipher = Cipher(algorithms.AES(bwd_aes_key), modes.CTR(zero_iv), backend=default_backend()).encryptor()
+    return fwd_cipher, bwd_cipher
 
-def onion_decrypt(aes_key: bytes, iv: bytes, encrypted_payload: bytes) -> bytes:
-    return process_crypto_layer(aes_key, iv, encrypted_payload)
-
-def calculate_digest(data: bytes) -> bytes:
-    full_hash = hashlib.sha256(data).digest()
-    return full_hash[:4]
+def create_running_digests():
+    fwd_digest = hashes.Hash(hashes.SHA1(), backend=default_backend())
+    bwd_digest = hashes.Hash(hashes.SHA1(), backend=default_backend())
+    return fwd_digest, bwd_digest
