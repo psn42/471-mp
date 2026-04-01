@@ -24,9 +24,9 @@ def tor_network():
     net.start()
 
     info('Launching Tor Relays\n')
-    r1.cmd('python3 SimpleTor_relay.py 9001 > r1_log.txt 2>&1 &')
-    r2.cmd('python3 SimpleTor_relay.py 9001 > r2_log.txt 2>&1 &')
-    r3.cmd('python3 SimpleTor_relay.py 9001 > r3_log.txt 2>&1 &')
+    r1.cmd('python3 -u SimpleTor_relay.py 8001 > r1_log.txt 2>&1 &')
+    r2.cmd('python3 -u SimpleTor_relay.py 8001 > r2_log.txt 2>&1 &')
+    r3.cmd('python3 -u SimpleTor_relay.py 8001 > r3_log.txt 2>&1 &')
     
     time.sleep(1) 
 
