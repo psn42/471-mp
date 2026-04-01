@@ -11,6 +11,7 @@ import threading
 RELAY_SEARCH_TIMEOUT = 1
 
 cellCmds = cell.CellCmd
+relayCmds = cell.RelayCmd
 
 MOCK_CONSENSUS = {
     "Node1": {
@@ -126,33 +127,66 @@ def circuit_init() -> int:
         "listener_event": threading.Event()
     }
     
-    
     return circID
     
 
 def build_new_circuit(guard_sslsock : ssl.SSLSocket):
 
     circID = circuit_init()
-    add_hop(circID, guard_sslsock) 
+    
+    for i in range(3):
+        if(not add_hop(circID, guard_sslsock)):
+            print("add_hop failed. Exiting")
+            return None
+        
+    
+    circuits[circID]["status"] = "ACTIVE" 
+    print(f"Circuit {circID} is active")      
     
 
-    
-
-
-def build_CREATE2_cell(public_key : bytes) -> bytes:
+def build_CREATE2_cell(circID: int, public_key : bytes) -> bytes:
     HTYPE = 2
     HLEN = len(public_key)
     create_payload = struct.pack(">HH32s", HTYPE,HLEN,public_key)
-    return create_payload
+    create_cell = cell.pack_cell(circID,cell.CellCmd.CREATE,create_payload)
+    return create_cell
 
 
 def build_EXTEND_cell_payload(ip : str, port : int, public_key : bytes) -> bytes:
     dest_ip = socket.inet_aton(ip)
     relay_cell_payload = struct.pack(">4sH32s",dest_ip,port, public_key)
     return relay_cell_payload
+
+def build_EXTEND_cell_for_Middle(circID: int, circuit_status :dict, public_key:bytes) -> bytes:
+    middle_relay = selected_relays[1]
+    middle_relay_ip, middle_relay_port = node_info(middle_relay)
+
+    extend_relay_payload = build_EXTEND_cell_payload(middle_relay_ip,middle_relay_port,public_key)
+    fwd_hash_machine = circuit_status["hops"][0]["fwd_digest"]
+    raw_extend_relay_cell = cell.pack_relayCell_with_digest(relayCmds.EXTEND,0,extend_relay_payload,fwd_hash_machine)
+    
+    fwd_aes_machine = circuit_status["hops"][0]["fwd_cipher"]
+    encrypted_extend_relay_cell = fwd_aes_machine.update(raw_extend_relay_cell)
+    
+    encrypted_extend_circuit_cell = cell.pack_cell(circID,cellCmds.RELAY,encrypted_extend_relay_cell)
+    return encrypted_extend_circuit_cell
     
     
+def build_EXTEND_cell_for_Exit(circID: int, circuit_status :dict, public_key:bytes) -> bytes:
+    exit_relay = selected_relays[1]
+    exit_relay_ip, exit_relay_port = node_info(exit_relay)
+
+    extend_relay_payload = build_EXTEND_cell_payload(exit_relay_ip,exit_relay_port,public_key)
+    fwd_hash_machine = circuit_status["hops"][1]["fwd_digest"]
+    raw_extend_relay_cell = cell.pack_relayCell_with_digest(relayCmds.EXTEND,0,extend_relay_payload,fwd_hash_machine)
     
+    middle_fwd_aes_machine = circuit_status["hops"][1]["fwd_cipher"]
+    encrypted_extend_relay_cell = middle_fwd_aes_machine.update(raw_extend_relay_cell)
+    
+    guard_fwd_aes_machine = circuit_status["hops"][0]["fwd_cipher"]
+    final_encrypted_extend_relay_cell = guard_fwd_aes_machine.update(encrypted_extend_relay_cell)
+    encrypted_extend_circuit_cell = cell.pack_cell(circID,cellCmds.RELAY,final_encrypted_extend_relay_cell)
+    return encrypted_extend_circuit_cell
 
 def add_hop(circID: int, guard_sslsock : ssl.SSLSocket):
 
@@ -164,20 +198,82 @@ def add_hop(circID: int, guard_sslsock : ssl.SSLSocket):
     hops_len = len(circuit_status["hops"])
 
     if hops_len == 0:
-        create_cell_payload = build_CREATE2_cell(public_key)
-        create_cell = cell.pack_cell(circID,cell.CellCmd.CREATE,create_cell_payload)
+        create_cell = build_CREATE2_cell(circID, public_key)
         guard_sslsock.sendall(create_cell)
+    
+    elif hops_len == 1:
+        encrypted_extend_circuit_cell = build_EXTEND_cell_for_Middle(circID, circuit_status,public_key)
+        guard_sslsock.sendall(encrypted_extend_circuit_cell)
+
+    elif hops_len == 2:
+        encrypted_extend_circuit_cell = build_EXTEND_cell_for_Exit(circID, circuit_status,public_key)
+        guard_sslsock.sendall(encrypted_extend_circuit_cell)    
 
    
     success = circuit_status["hop_ready_event"].wait(timeout=5.0)
     if not success:
-        print("[-] Error: Hop building timed out!")
+        print(f"Unable to build hop {hops_len + 1} for circuit")
         return False
         
-    print("[+] Hop successfully built! Moving on.")
+    print(f"Hop {hops_len + 1} is created")
     return True
     
+def decrypt_relay_cell(circ_data,relay_cell):
+    constructed_hops = circ_data["hops"]
+    constructed_hops_len = len(constructed_hops)
+    digest_machine = constructed_hops[-1]["bwd_digest"]
+    for i in range(constructed_hops_len):
+        decryption_cipher = constructed_hops[i]["bwd_cipher"]
+        decrypted_relay_cell = decryption_cipher.update(relay_cell)
+    
+    return decrypted_relay_cell,digest_machine
 
+    
+    
+def handle_public_key(circ_data,relay_pub_key):
+    try:
+        shared_secret = crypto.compute_shared_secret(circ_data["tmp_private_key"], relay_pub_key)
+        fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(circ_data, shared_secret)
+
+        circ_data["tmp_private_key"] = None
+
+
+        fwd_cipher, bwd_cipher = crypto.create_client_ciphers(fwd_aes_key, bwd_aes_key)
+        fwd_digest, bwd_digest = crypto.create_running_digests()
+
+        fwd_digest.update(fwd_digest_key)
+        bwd_digest.update(bwd_digest_key)
+
+        new_hop = {
+            "fwd_cipher": fwd_cipher,
+            "bwd_cipher": bwd_cipher,
+            "fwd_digest": fwd_digest,
+            "bwd_digest": bwd_digest
+        }
+
+        circ_data["hops"].append(new_hop)
+
+        circ_data["hop_ready_event"].set()
+    except Exception as e:
+        print(f"Error when deriving relay public key : {e}")
+    
+
+     
+def handle_RELAY(circ_data,recvd_relay_cell):
+    decrypted_relay_cell,digest_machine = decrypt_relay_cell(circ_data,recvd_relay_cell)
+    relayCmd, recognized, streamID,digest,length,data = cell.unpack_relay_cell(decrypted_relay_cell)
+    
+    if((not cell.verify_relay_cell(digest_machine,decrypted_relay_cell)) or recognized != 0):
+        print("handle_RELAY(): Digest not matched")
+        return None
+    
+    
+    if(relayCmd == relayCmds.EXTENDED):
+        relay_public_key = data[:32]
+        handle_public_key(circ_data, relay_public_key)
+        
+        
+    
 def handle_CREATED(circ_data, payload):
     HTYPE,HLEN = struct.unpack(">HH",payload[:4])
     assert HTYPE == 2, "Invalid HTYPE"
@@ -186,13 +282,13 @@ def handle_CREATED(circ_data, payload):
     assert len(relay_pub_key) == 32, "Invalid Key Length"
 
     
-    # 2. Do the ECDH Math & derive AES keys
+    
     shared_secret = crypto.compute_shared_secret(circ_data["tmp_private_key"], relay_pub_key)
     fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(circ_data, shared_secret)
 
     circ_data["tmp_private_key"] = None
 
-    # 3. Clean up the private key
+   
     fwd_cipher, bwd_cipher = crypto.create_client_ciphers(fwd_aes_key, bwd_aes_key)
     fwd_digest, bwd_digest = crypto.create_running_digests()
 
@@ -210,10 +306,12 @@ def handle_CREATED(circ_data, payload):
     }
 
     circ_data["hops"].append(new_hop)
-    # 4. WAKE UP THE MAIN THREAD!
+    
     circ_data["hop_ready_event"].set()
 
     print(f"Added new hop to circuit {circ_data}")
+
+
 
 
 
@@ -224,11 +322,15 @@ def listen_to_guard(guard_sslsock):
         circID, cellCmd, payload = struct.unpack(">HB509s", cell)
         circ_data = selected_relays[circID]
         
-        
         if cellCmd == cellCmds.CREATED:
             handle_CREATED(circ_data,payload)
+            
+        elif cellCmd == cellCmds.RELAY:
+            handle_RELAY(circ_data,payload)
+            
+            
 
-        
+       
             
 
 
@@ -245,6 +347,11 @@ def init():
     guard_sslsock = TLS_with_guard(guard_ip, guard_port)
 
     new_circID = build_new_circuit(guard_sslsock)
+    if(new_circID == None):
+        print("Unable to create new circuit. Exiting")
+        return 
+    
+    
 
     
 
