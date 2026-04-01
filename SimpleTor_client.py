@@ -296,6 +296,7 @@ def handle_CREATED(circ_data, payload):
 
 
 def listen_to_guard(guard_sslsock:ssl.SSLSocket):
+    print("Socket thread listening")
     try:
         while True:
             cell = guard_sslsock.recv(512)
@@ -321,39 +322,36 @@ def listen_to_guard(guard_sslsock:ssl.SSLSocket):
         
         
     
-                
             
-            
-    
-            
-            
-
-       
-            
-
-
 def init():
     #Node selection
     selected_relays = select_relays(MOCK_CONSENSUS)
-    
+    print(f"Selected Relays are: {select_relays}")
     if(selected_relays == None):
         print("Program Ended : Not Enough available relays")
     
     #TLS with guard
+    
     guard = selected_relays[0]
+    print(f"Starting TLS connection with {guard}")
     guard_ip, guard_port = node_info(guard)
+    print(f"IP: {guard_ip} Port: {guard_port}")
     guard_sslsock = TLS_with_guard(guard_ip, guard_port)
+    if(guard_sslsock != None):
+        print("Successfully connected with Guard")
     
     listener_thread = threading.Thread(
         target=listen_to_guard, args=(guard_sslsock,), daemon=True               
     )
     listener_thread.start()
 
+    print("Socket thread created")
+    print("Building a new circuit")
     new_circID = build_new_circuit(guard_sslsock)
     if(new_circID == None):
         print("Unable to create new circuit. Exiting")
         return 
-
+    
 
 if __name__ == "__main__":
     init()
