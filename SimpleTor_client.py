@@ -1,5 +1,5 @@
 import SimpleTor_cell as cell
-import SimpleTor_crypto_utils as crpyto
+import SimpleTor_crypto_utils as crypto
 
 import socket
 import ssl
@@ -10,45 +10,47 @@ import threading
 
 RELAY_SEARCH_TIMEOUT = 1
 
+cellCmds = cell.CellCmd
+
 MOCK_CONSENSUS = {
     "Node1": {
-        "IP": "10.0.0.1",         
-        "port": 9001,              
+        "IP": "1.2.3.1",         
+        "port": 1234,              
         "flags": ["Guard", "Middle"], 
         "pubkey": "a1b2c3d4e5f6..." 
     },
 
     "Node2": {
-        "IP": "10.0.0.2",
-        "port": 9001,
+        "IP": "1.2.3.2",
+        "port": 1234,
         "flags": ["Middle","Exit"],
         "pubkey": "f6e5d4c3b2a1..."
     },
 
     "Node3": {
-        "IP": "10.0.0.3",
-        "port": 9001,
+        "IP": "1.2.3.3",
+        "port": 1234,
         "flags": ["Guard","Exit"],         
         "pubkey": "112233445566..."
     },
 
       "Node4": {
-        "IP": "10.0.0.4",
-        "port": 9001,
+        "IP": "1.2.3.4",
+        "port": 1234,
         "flags": ["Middle","Guard"],         
         "pubkey": "1241245512555..."
     },
 
     "Node5": {
-        "IP": "10.0.0.5",
-        "port": 9001,
+        "IP": "1.2.3.5",
+        "port": 1234,
         "flags": ["Guard","Middle","Exit"],         
         "pubkey": "112233445566..."
     },
 
     "Node6": {
-        "IP": "10.0.0.6",
-        "port": 9001,
+        "IP": "1.2.3.6",
+        "port": 1234,
         "flags": ["Guard","Middle","Exit"],         
         "pubkey": "112233445566..."
     }    
@@ -89,10 +91,9 @@ def select_relays(Tor_concensus):
     
 
 def node_info(node: dict):
-    node_ip = node["ip"]
+    node_ip = node["IP"]
     node_port = node["port"]
-    node_ppubkey = node["pubkey"]
-    return node_ip, node_port, node_ppubkey
+    return node_ip, node_port
 
 
 def TLS_with_guard(ip:str, port: int):
@@ -110,7 +111,7 @@ def generate_new_circID() -> int:
     circID = secrets.randbelow(65535) + 1
     while circID in circuits:
         circID = circID = secrets.randbelow(65535) + 1
-    
+
     return circID
     
 
@@ -156,7 +157,7 @@ def build_EXTEND_cell_payload(ip : str, port : int, public_key : bytes) -> bytes
 def add_hop(circID: int, guard_sslsock : ssl.SSLSocket):
 
     circuit_status = circuits[circID]
-    private_key, public_key = crpyto.generate_ecdh_keypair()
+    private_key, public_key = crypto.generate_ecdh_keypair()
     circuits[circID]["tmp_private_key"] = private_key
     circuit_status["listener_event"].clear()
 
@@ -167,15 +168,68 @@ def add_hop(circID: int, guard_sslsock : ssl.SSLSocket):
         create_cell = cell.pack_cell(circID,cell.CellCmd.CREATE,create_cell_payload)
         guard_sslsock.sendall(create_cell)
 
+   
+    success = circuit_status["hop_ready_event"].wait(timeout=5.0)
+    if not success:
+        print("[-] Error: Hop building timed out!")
+        return False
+        
+    print("[+] Hop successfully built! Moving on.")
+    return True
+    
 
-
-    elif hops_len == 1  :
-        middle_ip, middle_port = node_info(selected_relays[1])
-        extend_cell_payload = build_EXTEND_cell_payload(middle_ip,middle_port, public_key)
-        extend_cell = cell.pack_relayCell(cell.RelayCmd.EXTEND,0,extend_cell_payload)
+def handle_CREATED(circ_data, payload):
+    HTYPE,HLEN = struct.unpack(">HH",payload[:4])
+    assert HTYPE == 2, "Invalid HTYPE"
+    assert HLEN == 32, "Invalid Key Length"
+    relay_pub_key = payload[4:4+HLEN]
+    assert len(relay_pub_key) == 32, "Invalid Key Length"
 
     
+    # 2. Do the ECDH Math & derive AES keys
+    shared_secret = crypto.compute_shared_secret(circ_data["tmp_private_key"], relay_pub_key)
+    fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(circ_data, shared_secret)
+
+    circ_data["tmp_private_key"] = None
+
+    # 3. Clean up the private key
+    fwd_cipher, bwd_cipher = crypto.create_client_ciphers(fwd_aes_key, bwd_aes_key)
+    fwd_digest, bwd_digest = crypto.create_running_digests()
+
+    fwd_digest.update(fwd_digest_key)
+    bwd_digest.update(bwd_digest_key)
+
+    new_hop = {
+        "role" : "Guard",
+        "ip" : selected_relays[0]["IP"],
+        "port": selected_relays[0]["port"],
+        "fwd_cipher": fwd_cipher,
+        "bwd_cipher": bwd_cipher,
+        "fwd_digest": fwd_digest,
+        "bwd_digest": bwd_digest
+    }
+
+    circ_data["hops"].append(new_hop)
+    # 4. WAKE UP THE MAIN THREAD!
+    circ_data["hop_ready_event"].set()
+
+    print(f"Added new hop to circuit {circ_data}")
+
+
+
+
+def listen_to_guard(guard_sslsock):
+    while True:
+        cell = guard_sslsock.recv(512)
+        circID, cellCmd, payload = struct.unpack(">HB509s", cell)
+        circ_data = selected_relays[circID]
         
+        
+        if cellCmd == cellCmds.CREATED:
+            handle_CREATED(circ_data,payload)
+
+        
+            
 
 
 def init():
@@ -191,6 +245,7 @@ def init():
     guard_sslsock = TLS_with_guard(guard_ip, guard_port)
 
     new_circID = build_new_circuit(guard_sslsock)
+
     
 
 
