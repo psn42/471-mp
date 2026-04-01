@@ -2,6 +2,7 @@ import struct
 from enum import IntEnum
 import hashlib
 import SimpleTor_crypto_utils as crypto
+import hmac
 #length of parameters for Circuit cell
 
 CELL_LEN = 512
@@ -71,13 +72,34 @@ def pack_relayCell(relayCmd :int, streamID : int, data : bytes) -> bytes:
         recognized = 0
         padded_data = data + padding
         dummy_digest = b'\x00\x00\x00\x00'
-        temp_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, dummy_digest, data_len, padded_data)
-        calculated_digest = crypto.calculate_digest(temp_cell)
-        packed_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, calculated_digest, data_len, padded_data)
+        packed_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, dummy_digest, data_len, padded_data)
+        
     except Exception as e:
         print(f"Unexpected Error when packing Relay Cell: {e}")   
        
     return packed_relay_cell
+
+
+def pack_relayCell_with_digest(relayCmd :int, streamID : int, data : bytes,digest_machine) -> bytes:
+    data_len = len(data)
+    assert 0 <= relayCmd <= 255, "pack_relayCell(): Unexpected Length of Relay ID"
+    assert 0 <= streamID <= 65535, "pack_relayCell(): Unexpected Length of stream ID"
+    assert data_len <= RELAY_CELL_DATA_LEN, "pack_relayCell(): Unexpected Length of Data"
+
+    try:
+        padding = b'\x00' * (RELAY_CELL_DATA_LEN - data_len)
+        recognized = 0
+        padded_data = data + padding
+        dummy_digest = b'\x00\x00\x00\x00'
+        predigest_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, dummy_digest, data_len, padded_data)
+        digest_machine.update(predigest_relay_cell)
+        digest = digest_machine.copy().digest()[:4]
+        postdigest_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, digest, data_len, padded_data)
+        return postdigest_relay_cell
+        
+    except Exception as e:
+        print(f"Unexpected Error when packing Relay Cell: {e}")   
+    
 
 def unpack_relay_cell(in_cell : bytes):
     assert len(in_cell) == RELAY_CELL_LEN, "unpack_relay_cell(): Unexpected Relay Cell Length"
@@ -88,12 +110,12 @@ def unpack_relay_cell(in_cell : bytes):
         
     return relayCmd, recognized, streamID, digest, data_len, data
 
-def verify_relay_cell(received_509_bytes: bytes) -> bool:
+def verify_relay_cell(received_509_bytes: bytes, digest_machine) -> bool:
     received_digest = received_509_bytes[5:9]
     zeroed_cell = received_509_bytes[:5] + b'\x00\x00\x00\x00' + received_509_bytes[9:]
-    expected_digest = crypto.calculate_digest(zeroed_cell)
-    
-    import hmac
+    digest_machine.update(zeroed_cell)
+    expected_digest = digest_machine.copy().digest()[:4]
+        
     return hmac.compare_digest(expected_digest, received_digest)
 
 
