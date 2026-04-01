@@ -316,17 +316,36 @@ def handle_CREATED(circ_data, payload):
 
 
 
-def listen_to_guard(guard_sslsock):
-    while True:
-        cell = guard_sslsock.recv(512)
-        circID, cellCmd, payload = struct.unpack(">HB509s", cell)
-        circ_data = selected_relays[circID]
-        
-        if cellCmd == cellCmds.CREATED:
-            handle_CREATED(circ_data,payload)
+def listen_to_guard(guard_sslsock:ssl.SSLSocket):
+    try:
+        while True:
+            cell = guard_sslsock.recv(512)
+            circID, cellCmd, payload = struct.unpack(">HB509s", cell)
+            circ_data = selected_relays[circID]
             
-        elif cellCmd == cellCmds.RELAY:
-            handle_RELAY(circ_data,payload)
+            if cellCmd == cellCmds.CREATED:
+                print("Received CREATED cell ")
+                handle_CREATED(circ_data,payload)
+                
+            elif cellCmd == cellCmds.RELAY:
+                print("Received RELAY cell")
+                handle_RELAY(circ_data,payload)
+            
+            elif cellCmd == cellCmds.DESTROY:
+                print("Received DESTROY cell")
+                
+            else:
+                print("Unknown command, discarding")
+                
+    except Exception as e:
+        print(f"Socket listener failed : {e}")
+        
+        
+    
+                
+            
+            
+    
             
             
 
@@ -345,16 +364,16 @@ def init():
     guard = selected_relays[0]
     guard_ip, guard_port = node_info(guard)
     guard_sslsock = TLS_with_guard(guard_ip, guard_port)
+    
+    listener_thread = threading.Thread(
+        target=listen_to_guard, args=(guard_sslsock,), daemon=True               
+    )
+    listener_thread.start()
 
     new_circID = build_new_circuit(guard_sslsock)
     if(new_circID == None):
         print("Unable to create new circuit. Exiting")
         return 
-    
-    
-
-    
-
 
 
 if __name__ == "__main__":
