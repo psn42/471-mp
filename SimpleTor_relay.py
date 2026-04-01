@@ -3,7 +3,6 @@ import threading
 import struct
 import secrets
 import hmac
-import sys
 import SimpleTor_cell as stc
 import SimpleTor_crypto_utils as crypto
 
@@ -55,6 +54,7 @@ def handle_client(conn, addr):
                 continue
             if cellCmd == stc.CellCmd.CREATE:
                 print(f"Circuit {circID}: Performing CREATE2 Handshake")
+                print(f"Received Cell: {raw_cell}")
                 try:
                     htype, hlen = struct.unpack('>HH', payload[:4])
                     if htype != 0x0002: continue
@@ -65,12 +65,11 @@ def handle_client(conn, addr):
                     shared_secret = crypto.compute_shared_secret(relay_priv_key, client_pub_bytes)
                     fwd_d_key, bwd_d_key, fwd_a_key, bwd_a_key = crypto.derive_tor_keys(shared_secret)
                     fwd_cipher, bwd_cipher = crypto.create_relay_ciphers(fwd_a_key, bwd_a_key)
-                    fwd_digest, bwd_digest = crypto.create_running_digests()
-                    fwd_digest.update(fwd_d_key)
-                    bwd_digest.update(bwd_d_key)
+                    fwd_digest, bwd_digest = crypto.create_running_digests(fwd_d_key,bwd_d_key)
                     relay_state.register_forward_route(conn, circID, fwd_cipher, bwd_cipher, fwd_digest, bwd_digest)
                     
                     created_cell = stc.pack_cell(circID, stc.CellCmd.CREATED, relay_pub_bytes)
+                    
                     conn.sendall(created_cell)
                     print(f"Sent CREATED cell backward")
                 except Exception as e:
@@ -152,7 +151,7 @@ def handle_client(conn, addr):
     finally:
         conn.close()
 
-def start_relay(host='0.0.0.0', port=9001):
+def start_relay(host='localhost', port=8001):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((host, port))
@@ -165,5 +164,4 @@ def start_relay(host='0.0.0.0', port=9001):
         client_thread.start()
 
 if __name__ == '__main__':
-    port = int(sys.argv[1]) if len(sys.argv) > 1 else 9001
-    start_relay(port=port)
+    start_relay()
