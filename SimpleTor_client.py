@@ -15,46 +15,25 @@ relayCmds = cell.RelayCmd
 
 MOCK_CONSENSUS = {
     "Node1": {
-        "IP": "1.2.3.1",         
-        "port": 1234,              
-        "flags": ["Guard", "Middle"], 
+        "IP": "10.0.0.1",         
+        "port": 8001,              
+        "flags": ["Guard", "Middle","Exit"], 
         "pubkey": "a1b2c3d4e5f6..." 
     },
 
     "Node2": {
-        "IP": "1.2.3.2",
-        "port": 1234,
-        "flags": ["Middle","Exit"],
+        "IP": "10.0.0.2",
+        "port": 8001,
+        "flags": ["Guard", "Middle","Exit"],
         "pubkey": "f6e5d4c3b2a1..."
     },
 
     "Node3": {
-        "IP": "1.2.3.3",
-        "port": 1234,
-        "flags": ["Guard","Exit"],         
-        "pubkey": "112233445566..."
-    },
-
-      "Node4": {
-        "IP": "1.2.3.4",
-        "port": 1234,
-        "flags": ["Middle","Guard"],         
-        "pubkey": "1241245512555..."
-    },
-
-    "Node5": {
-        "IP": "1.2.3.5",
-        "port": 1234,
+        "IP": "10.0.0.3",
+        "port": 8001,
         "flags": ["Guard","Middle","Exit"],         
         "pubkey": "112233445566..."
-    },
-
-    "Node6": {
-        "IP": "1.2.3.6",
-        "port": 1234,
-        "flags": ["Guard","Middle","Exit"],         
-        "pubkey": "112233445566..."
-    }    
+    }
     
 }
 
