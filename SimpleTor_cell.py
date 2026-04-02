@@ -93,7 +93,7 @@ def pack_relayCell_with_digest(relayCmd :int, streamID : int, data : bytes,diges
         dummy_digest = b'\x00\x00\x00\x00'
         predigest_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, dummy_digest, data_len, padded_data)
         digest_machine.update(predigest_relay_cell)
-        digest = digest_machine.copy().digest()[:4]
+        digest = digest_machine.copy().finalize()[:4]
         postdigest_relay_cell = struct.pack('>BHH4sH498s', relayCmd, recognized, streamID, digest, data_len, padded_data)
         return postdigest_relay_cell
         
@@ -114,7 +114,7 @@ def verify_relay_cell(received_509_bytes: bytes, digest_machine) -> bool:
     received_digest = received_509_bytes[5:9]
     zeroed_cell = received_509_bytes[:5] + b'\x00\x00\x00\x00' + received_509_bytes[9:]
     digest_machine.update(zeroed_cell)
-    expected_digest = digest_machine.copy().digest()[:4]
+    expected_digest = digest_machine.copy().finalize()[:4]
         
     return hmac.compare_digest(expected_digest, received_digest)
 

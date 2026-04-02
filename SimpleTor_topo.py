@@ -23,16 +23,15 @@ def tor_network():
     info('Starting Network\n')
     net.start()
 
-    info('Launching Tor Relays\n')
+    info('Launching Tor Relays and Server\n')
     r1.cmd('python3 -u SimpleTor_relay.py 10.0.0.1 8001 > r1_log.txt 2>&1 &')
     r2.cmd('python3 -u SimpleTor_relay.py 10.0.0.2 8001 > r2_log.txt 2>&1 &')
     r3.cmd('python3 -u SimpleTor_relay.py 10.0.0.3 8001 > r3_log.txt 2>&1 &')
+    server.cmd('python3 -u SimpleTor_server.py > server_log.txt 2>&1 &')
     
     time.sleep(1) 
-
     info('Network Ready. Entering CLI...\n')
     CLI(net)
-
     info('Stopping Network\n')
     net.stop()
 
