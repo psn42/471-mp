@@ -5,7 +5,7 @@ import secrets
 import hmac
 import SimpleTor_cell as stc
 import SimpleTor_crypto_utils as crypto
-
+import sys
 class RelayState:
     def __init__(self):
         self.circuit_table = {}
@@ -151,7 +151,7 @@ def handle_client(conn, addr):
     finally:
         conn.close()
 
-def start_relay(host='localhost', port=8001):
+def start_relay(host='0.0.0.0', port=8001):
     server_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
     server_socket.setsockopt(socket.SOL_SOCKET, socket.SO_REUSEADDR, 1)
     server_socket.bind((host, port))
@@ -164,4 +164,10 @@ def start_relay(host='localhost', port=8001):
         client_thread.start()
 
 if __name__ == '__main__':
-    start_relay()
+    if len(sys.argv) > 2:
+        relay_ip = sys.argv[1]
+        relay_port = int(sys.argv[2])
+    else:
+        relay_ip = "0.0.0.0"
+        relay_port = 8001
+    start_relay(relay_ip,relay_port)
