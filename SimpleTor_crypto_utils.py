@@ -46,11 +46,8 @@ def create_relay_ciphers(fwd_aes_key: bytes, bwd_aes_key: bytes):
     bwd_cipher = Cipher(algorithms.AES(bwd_aes_key), modes.CTR(zero_iv), backend=default_backend()).encryptor()
     return fwd_cipher, bwd_cipher
 
-def create_running_digests(fwd_digest_key : bytes,bwd_digest_key:bytes):
+def create_running_digests():
     fwd_digest = hashes.Hash(hashes.SHA1(), backend=default_backend())
-    fwd_digest.update(fwd_digest_key)
     bwd_digest = hashes.Hash(hashes.SHA1(), backend=default_backend())
-    bwd_digest.update(bwd_digest_key)
-    
     
     return fwd_digest, bwd_digest
