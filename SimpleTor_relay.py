@@ -60,7 +60,7 @@ def handle_server_to_client(server_sock, client_conn, circID, streamID, route):
             
             client_conn.sendall(backward_cell)
     except Exception as e:
-        pass
+        print(f"[Relay ERROR] {e}")
     finally:
         server_sock.close()
 
@@ -191,7 +191,7 @@ def handle_client(conn, addr):
                         next_sock.sendall(forward_cell)
 
                 except Exception as e:
-                    pass
+                    print(f"[Relay ERROR] {e}")
     except: pass
     finally:
         conn.close()

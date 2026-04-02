@@ -113,9 +113,11 @@ def unpack_relay_cell(in_cell : bytes):
 def verify_relay_cell(received_509_bytes: bytes, digest_machine) -> bool:
     received_digest = received_509_bytes[5:9]
     zeroed_cell = received_509_bytes[:5] + b'\x00\x00\x00\x00' + received_509_bytes[9:]
-    digest_machine.update(zeroed_cell)
-    expected_digest = digest_machine.copy().finalize()[:4]
-        
+
+    temp = digest_machine.copy()
+    temp.update(zeroed_cell)
+    expected_digest = temp.finalize()[:4]
+
     return hmac.compare_digest(expected_digest, received_digest)
 
 

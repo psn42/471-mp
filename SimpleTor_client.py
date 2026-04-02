@@ -186,15 +186,25 @@ def handle_public_key(circ_data,relay_pub_key):
     except Exception as e:
         print(f"Error deriving relay public key : {e}")
 
-def handle_RELAY(circ_data,recvd_relay_cell):
-    decrypted_relay_cell, digest_machine = decrypt_relay_cell(circ_data,recvd_relay_cell)
+def handle_RELAY(circ_data, recvd_relay_cell):
+    decrypted_relay_cell, digest_machine = decrypt_relay_cell(circ_data, recvd_relay_cell)
     relayCmd, recognized, streamID, digest, length, data = cell.unpack_relay_cell(decrypted_relay_cell)
-    
-    if((not cell.verify_relay_cell(decrypted_relay_cell, digest_machine)) or recognized != 0):
-        print("handle_RELAY(): Digest not matched")
-        return None
-    
+
+    zeroed_cell = (
+        decrypted_relay_cell[:5] +
+        b'\x00\x00\x00\x00' +
+        decrypted_relay_cell[9:]
+    )
+
+    if not cell.verify_relay_cell(decrypted_relay_cell, digest_machine) or recognized != 0:
+        print("[Client] Digest verification failed")
+        return
+    digest_machine.update(zeroed_cell)
+
+    print(f"[Client] RELAY cmd={relayCmd}")
+
     if relayCmd == relayCmds.EXTENDED:
+        print("[Client] EXTENDED received")
         handle_public_key(circ_data, data[:32])
     elif relayCmd == relayCmds.CONNECTED:
         circ_data["c2_connected_event"].set()
@@ -228,15 +238,25 @@ def listen_to_guard(guard_sock):
     try:
         while True:
             raw_cell = guard_sock.recv(512)
-            if not raw_cell: break
+            if not raw_cell:
+                break
+
             circID, cellCmd, payload = cell.unpack_cell(raw_cell)
-            circ_data = circuits[circID]
-            
+            circ_data = circuits.get(circID)
+
+            if not circ_data:
+                print(f"[Client] Unknown circuit {circID}")
+                continue
+
             if cellCmd == cellCmds.CREATED:
-                handle_CREATED(circ_data,payload)
+                print("[Client] CREATED received")
+                handle_CREATED(circ_data, payload)
+
             elif cellCmd == cellCmds.RELAY:
-                handle_RELAY(circ_data,payload)
-    except: pass
+                handle_RELAY(circ_data, payload)
+
+    except Exception as e:
+        print(f"[Client Listener ERROR] {e}")
             
 def init():
     global selected_relays
