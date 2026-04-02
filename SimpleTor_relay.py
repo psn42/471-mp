@@ -57,7 +57,7 @@ def handle_server_to_client(server_sock, client_conn, circID, streamID, route):
                 packed_data_cell = struct.pack('>BHH4sH498s', stc.RelayCmd.DATA, 0, streamID, calculated_digest, len(app_data), padded_data)
                 encrypted_cell = route["bwd_cipher"].update(packed_data_cell)
                 backward_cell = stc.pack_cell(circID, stc.CellCmd.RELAY, encrypted_cell)
-            print(f"Sending Cell:\nCircuit ID: {circID}\nCell Command: RELAY\nPayload:{encrypted_cell}")
+            print(f"""Sending Cell:\nCircuit ID: {circID}\nCell Command: RELAY\nPayload:{encrypted_cell}""")
             client_conn.sendall(backward_cell)
     except Exception as e:
         print(f"[Relay ERROR] {e}")
@@ -90,7 +90,7 @@ def handle_client(conn, addr):
                     
                     relay_state.register_forward_route(conn, circID, fwd_cipher, bwd_cipher, fwd_digest, bwd_digest)
                     created_cell = stc.pack_cell(circID, stc.CellCmd.CREATED, relay_pub_bytes)
-                    print(f"Sending Cell:\nCircuit ID: {circID}\nCell Command: CREATED\nPayload:{relay_pub_bytes}")
+                    print(f"""Sending Cell:\nCircuit ID: {circID}\nCell Command: CREATED\nPayload:{relay_pub_bytes}""")
                     conn.sendall(created_cell)
                 except Exception as e:
                     print(f"Key Exchange Failed: {e}")
@@ -104,7 +104,7 @@ def handle_client(conn, addr):
                         with route["crypto_lock"]:
                             encrypted_payload = route["bwd_cipher"].update(payload)
                             backward_cell = stc.pack_cell(route["next_circ_id"], stc.CellCmd.RELAY, encrypted_payload)
-                        print(f"Sending Cell:\nCircuit ID: {route["next_circ_id"]}\nCell Command: RELAY\nPayload:{encrypted_payload}")
+                        print(f"""Sending Cell:\nCircuit ID: {route["next_circ_id"]}\nCell Command: RELAY\nPayload:{encrypted_payload}""")
                         route["next_socket"].sendall(backward_cell)
                         continue
                         
