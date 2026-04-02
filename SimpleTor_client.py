@@ -294,7 +294,7 @@ def init():
     print("-" * 50)
     
     while True:
-        cmd_input = input("Tor-C2> ")
+        cmd_input = input("Tor-Client> ")
         if cmd_input.lower() in ['exit', 'quit']: break
         if not cmd_input: continue
 
