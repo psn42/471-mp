@@ -8,7 +8,7 @@ import time
 import struct
 import threading
 
-RELAY_SEARCH_TIMEOUT = 1
+RELAY_SEARCH_TIMEOUT = 5
 
 cellCmds = cell.CellCmd
 relayCmds = cell.RelayCmd
@@ -241,7 +241,9 @@ def listen_to_guard(guard_sock):
 def init():
     global selected_relays
     selected_relays = select_relays(MOCK_CONSENSUS)
-    if not selected_relays: return
+    if not selected_relays: 
+        print("Error: Relays timed out")
+        return
     
     guard = selected_relays[0]
     guard_ip, guard_port = node_info(guard)
