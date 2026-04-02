@@ -6,6 +6,14 @@ import hmac
 import sys
 import SimpleTor_cell as stc
 import SimpleTor_crypto_utils as crypto
+import ssl
+
+server_context = ssl.SSLContext(ssl.PROTOCOL_TLS_SERVER)
+server_context.load_cert_chain(certfile="relay_cert.pem", keyfile="relay_key.pem")
+client_context = ssl.SSLContext(ssl.PROTOCOL_TLS_CLIENT)
+client_context.check_hostname = False
+client_context.verify_mode=ssl.CERT_NONE 
+
 
 class RelayState:
     def __init__(self):
@@ -161,20 +169,21 @@ def handle_client(conn, addr):
                                 next_ip = socket.inet_ntoa(ip_bytes)
                                 
                                 next_socket = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-                                next_socket.connect((next_ip, next_port))
+                                ssl_next_socket = client_context.wrap_socket(next_socket,server_hostname=next_ip)
+                                ssl_next_socket.connect((next_ip, next_port))
                                 next_circ_id = secrets.randbelow(65535) + 1
 
                                 create_payload = struct.pack('>HH32s', 0x0002, 32, next_pub_key)
                                 create_cell = stc.pack_cell(next_circ_id, stc.CellCmd.CREATE, create_payload)
-                                next_socket.sendall(create_cell)
+                                ssl_next_socket.sendall(create_cell)
 
-                                created_resp = next_socket.recv(stc.CELL_LEN)
+                                created_resp = ssl_next_socket.recv(stc.CELL_LEN)
                                 resp_circ_id, resp_cmd, resp_payload = stc.unpack_cell(created_resp)
 
                                 if resp_cmd == stc.CellCmd.CREATED:
                                     relay_reply_pubkey = resp_payload[:32]
-                                    relay_state.link_circuits(conn, circID, next_socket, next_circ_id)
-                                    threading.Thread(target=handle_client, args=(next_socket, next_ip), daemon=True).start()
+                                    relay_state.link_circuits(conn, circID, ssl_next_socket, next_circ_id)
+                                    threading.Thread(target=handle_client, args=(ssl_next_socket, next_ip), daemon=True).start()
 
                                     with route["crypto_lock"]:
                                         padding = b'\x00' * (stc.RELAY_CELL_DATA_LEN - len(relay_reply_pubkey))
@@ -210,7 +219,9 @@ def start_relay(host='0.0.0.0', port=8001):
     print(f"Relay listening on {host}:{port}")
     while True:
         conn, addr = server_socket.accept()
-        client_thread = threading.Thread(target=handle_client, args=(conn, addr))
+        
+        ssl_client_sock = server_context.wrap_socket(conn,server_side=True)
+        client_thread = threading.Thread(target=handle_client, args=(ssl_client_sock, addr))
         client_thread.daemon = True
         client_thread.start()
 

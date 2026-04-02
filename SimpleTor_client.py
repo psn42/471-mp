@@ -78,8 +78,10 @@ def node_info(node: dict):
 
 def connect_to_guard(ip:str, port: int):
     raw_guard_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
-    raw_guard_sock.connect((ip, port))
-    return raw_guard_sock
+    context = ssl._create_unverified_context()
+    ssl_guard_sock = context.wrap_socket(raw_guard_sock, server_hostname=ip)
+    ssl_guard_sock.connect((ip,port))
+    return ssl_guard_sock
 
 
 def generate_new_circID() -> int:
