@@ -70,9 +70,10 @@ def handle_client(conn, addr):
             raw_cell = conn.recv(stc.CELL_LEN)
             if not raw_cell: break
             if len(raw_cell) != stc.CELL_LEN: continue
-                
+              
             try:
                 circID, cellCmd, payload = stc.unpack_cell(raw_cell)
+                print(f"""Received Cell:\nCircuit ID: {circID}\nCell Command: {cellCmd}\nPayload:{payload}""")  
             except: continue
                 
             if cellCmd == stc.CellCmd.CREATE:
@@ -122,7 +123,9 @@ def handle_client(conn, addr):
                         if hmac.compare_digest(expected_digest, received_digest):
                             with route["crypto_lock"]:
                                 route["fwd_digest"].update(zeroed_cell)
-                                
+                            
+                            print(f"""Received Relay Cell:\nRelay Command: {relayCmd}\nRecognized:{recognized}\nData:{data} """)
+                            
                             if relayCmd == stc.RelayCmd.BEGIN:
                                 raw_dest = data[:data_len].decode('utf-8').strip('\x00')
                                 target_ip, target_port = raw_dest.split(':')
@@ -142,7 +145,7 @@ def handle_client(conn, addr):
                                         packed_conn = struct.pack('>BHH4sH498s', stc.RelayCmd.CONNECTED, 0, streamID, calc_digest, 0, padding)
                                         enc_conn = route["bwd_cipher"].update(packed_conn)
                                         bwd_cell = stc.pack_cell(circID, stc.CellCmd.RELAY, enc_conn)
-                                        
+                                    print(f"""Sending RELAY cell:\nCircuit ID: {circID}\nCircuit Command:RELAY\nPayload: {enc_conn}""")
                                     conn.sendall(bwd_cell)
                                     threading.Thread(target=handle_server_to_client, args=(server_sock, conn, circID, streamID, route), daemon=True).start()
                                 except Exception as e:
@@ -184,12 +187,13 @@ def handle_client(conn, addr):
                                         
                                         encrypted_extended = route["bwd_cipher"].update(packed_extended)
                                         backward_cell = stc.pack_cell(circID, stc.CellCmd.RELAY, encrypted_extended)
-                                        
+                                    print(f"""Sending RELAY cell:\nCircuit ID: {circID}\nCircuit Command:RELAY\nPayload: {encrypted_extended}""")    
                                     conn.sendall(backward_cell)
                             continue           
                     next_sock = route.get("next_socket")
                     if next_sock:
                         forward_cell = stc.pack_cell(route["next_circ_id"], stc.CellCmd.RELAY, decrypted_payload)
+                        print(f"""Sending RELAY cell:\nCircuit ID: {route["next_circ_id"]}\nCircuit Command:RELAY\nPayload: {decrypted_payload}""")
                         next_sock.sendall(forward_cell)
 
                 except Exception as e:
