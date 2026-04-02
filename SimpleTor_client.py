@@ -213,8 +213,7 @@ def handle_RELAY(circ_data, recvd_relay_cell):
         print(output, end="")
 
 def handle_CREATED(circ_data, payload):
-    HTYPE,HLEN = struct.unpack(">HH",payload[:4])
-    relay_pub_key = payload[4:4+HLEN]
+    relay_pub_key = payload[:32]
     
     shared_secret = crypto.compute_shared_secret(circ_data["tmp_private_key"], relay_pub_key)
     fwd_digest_key, bwd_digest_key, fwd_aes_key, bwd_aes_key = crypto.derive_tor_keys(shared_secret)
