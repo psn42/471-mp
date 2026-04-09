@@ -7,7 +7,7 @@ import secrets
 import time
 import struct
 import threading
-
+import time
 RELAY_SEARCH_TIMEOUT = 5
 
 cellCmds = cell.CellCmd
@@ -211,8 +211,10 @@ def handle_RELAY(circ_data, recvd_relay_cell):
     elif relayCmd == relayCmds.CONNECTED:
         circ_data["c2_connected_event"].set()
     elif relayCmd == relayCmds.DATA:
-        output = data[:length].decode('utf-8')
+        output = data[:length].decode('utf-8')    
         print(output, end="")
+        print(f"Start Time:{time.time()}")
+        
 
 def handle_CREATED(circ_data, payload):
     relay_pub_key = payload[:32]
@@ -239,6 +241,7 @@ def listen_to_guard(guard_sock):
     try:
         while True:
             raw_cell = guard_sock.recv(512)
+            
             if not raw_cell:
                 break
 
@@ -258,8 +261,37 @@ def listen_to_guard(guard_sock):
 
     except Exception as e:
         print(f"[Client Listener ERROR] {e}")
+        
+def direct_c2():
+    try:
+        target_ip = "10.0.0.200"
+        target_port = 9999
+        server_sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
+        server_sock.connect((target_ip, target_port))
+        total_delay = 0
+        
+        for i in range(3):
+            
+            cmd_input = input()
+            cmd_bytes = cmd_input.encode('utf-8')
+            start_time = time.time()
+            server_sock.sendall(cmd_bytes)
+            response = server_sock.recv(4096)
+            print(response.decode('utf-8'))
+            end_time = time.time()
+            delay = end_time - start_time
+            total_delay += delay
+            
+        print(f"Average delay: {total_delay/3}")            
+    except Exception as e:
+        print(e)
+    finally:
+        server_sock.close()
+        
+    
             
 def init():
+    direct_c2()
     global selected_relays
     selected_relays = select_relays(MOCK_CONSENSUS)
     if not selected_relays: 
@@ -295,6 +327,7 @@ def init():
     print("C2 Stream CONNECTED. You can now type bash commands.")
     print("-" * 50)
     
+
     while True:
         cmd_input = input("Tor-Client> ")
         if cmd_input.lower() in ['exit', 'quit']: break
@@ -307,7 +340,7 @@ def init():
         enc_payload = raw_data_cell
         for i in reversed(range(3)):
             enc_payload = circ_data["hops"][i]["fwd_cipher"].update(enc_payload)
-            
+        print(f"Start Time:{time.time()}")
         guard_sock.sendall(cell.pack_cell(new_circID, cellCmds.RELAY, enc_payload))
         time.sleep(0.5)
 
