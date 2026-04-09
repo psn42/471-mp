@@ -44,7 +44,7 @@ circuits = {}
 
 start_time = None
 end_time = None
-average_time = None
+average_time = 0
 def select_node(consensus : dict, flag : str) -> dict: 
     nodes = list(consensus.keys())
 
@@ -214,7 +214,9 @@ def handle_RELAY(circ_data, recvd_relay_cell):
     elif relayCmd == relayCmds.CONNECTED:
         circ_data["c2_connected_event"].set()
     elif relayCmd == relayCmds.DATA:
-        output = data[:length].decode('utf-8')    
+        output = data[:length].decode('utf-8')
+        end_time = time.time()
+        average_time += start_time - end_time    
         print(output, end="")
         
         
@@ -244,8 +246,6 @@ def listen_to_guard(guard_sock):
     try:
         while True:
             raw_cell = guard_sock.recv(512)
-            end_time = time.time()
-            average_time += start_time - end_time
             if not raw_cell:
                 break
 
