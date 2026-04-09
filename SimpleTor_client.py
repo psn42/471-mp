@@ -192,6 +192,7 @@ def handle_public_key(circ_data,relay_pub_key):
         print(f"Error deriving relay public key : {e}")
 
 def handle_RELAY(circ_data, recvd_relay_cell):
+    global average_time,end_time
     decrypted_relay_cell, digest_machine = decrypt_relay_cell(circ_data, recvd_relay_cell)
     relayCmd, recognized, streamID, digest, length, data = cell.unpack_relay_cell(decrypted_relay_cell)
 
@@ -216,7 +217,7 @@ def handle_RELAY(circ_data, recvd_relay_cell):
     elif relayCmd == relayCmds.DATA:
         output = data[:length].decode('utf-8')
         end_time = time.time()
-        average_time += start_time - end_time    
+        average_time += end_time - start_time    
         print(output, end="")
         
         
@@ -295,6 +296,7 @@ def direct_c2():
     
             
 def init():
+    global start_time,average_time
     direct_c2()
     global selected_relays
     selected_relays = select_relays(MOCK_CONSENSUS)
