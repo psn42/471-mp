@@ -274,16 +274,15 @@ def direct_c2():
         server_sock.connect((target_ip, target_port))
         total_delay = 0
         
-        for i in range(1000):
+        
             
-            cmd_input = input()
-            cmd_bytes = cmd_input.encode('utf-8')
+        cmd_input = input()
+        cmd_bytes = cmd_input.encode('utf-8')
+        for i in range(1000):
             start_time = time.time()
             server_sock.sendall(cmd_bytes)
             response = server_sock.recv(4096)
             end_time = time.time()
-            print(response.decode('utf-8'))
-    
             delay = end_time - start_time
             total_delay += delay
             
@@ -342,7 +341,6 @@ def init():
         exit_fwd_hash = circ_data["hops"][2]["fwd_digest"]
         for i in range(1000):
             raw_data_cell = cell.pack_relayCell_with_digest(relayCmds.DATA, 1, cmd_bytes, exit_fwd_hash)
-            
             enc_payload = raw_data_cell
             for i in reversed(range(3)):
                 enc_payload = circ_data["hops"][i]["fwd_cipher"].update(enc_payload)
