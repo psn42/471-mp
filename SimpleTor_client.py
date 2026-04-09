@@ -13,6 +13,7 @@ RELAY_SEARCH_TIMEOUT = 5
 cellCmds = cell.CellCmd
 relayCmds = cell.RelayCmd
 
+
 MOCK_CONSENSUS = {
     "Node1": {
         "IP": "10.0.0.1",         
@@ -41,7 +42,9 @@ selected_relays = {}
 
 circuits = {}
 
-
+start_time = None
+end_time = None
+average_time = None
 def select_node(consensus : dict, flag : str) -> dict: 
     nodes = list(consensus.keys())
 
@@ -241,7 +244,8 @@ def listen_to_guard(guard_sock):
     try:
         while True:
             raw_cell = guard_sock.recv(512)
-            print(f"End Time:{time.time()}")
+            end_time = time.time()
+            average_time += start_time - end_time
             if not raw_cell:
                 break
 
@@ -270,7 +274,7 @@ def direct_c2():
         server_sock.connect((target_ip, target_port))
         total_delay = 0
         
-        for i in range(3):
+        for i in range(1000):
             
             cmd_input = input()
             cmd_bytes = cmd_input.encode('utf-8')
@@ -283,7 +287,7 @@ def direct_c2():
             delay = end_time - start_time
             total_delay += delay
             
-        print(f"Average delay: {total_delay/3}")            
+        print(f"Average delay: {total_delay/1000}")            
     except Exception as e:
         print(e)
     finally:
@@ -336,14 +340,16 @@ def init():
 
         cmd_bytes = cmd_input.encode('utf-8')
         exit_fwd_hash = circ_data["hops"][2]["fwd_digest"]
-        raw_data_cell = cell.pack_relayCell_with_digest(relayCmds.DATA, 1, cmd_bytes, exit_fwd_hash)
-        
-        enc_payload = raw_data_cell
-        for i in reversed(range(3)):
-            enc_payload = circ_data["hops"][i]["fwd_cipher"].update(enc_payload)
-        print(f"Start Time:{time.time()}")
-        guard_sock.sendall(cell.pack_cell(new_circID, cellCmds.RELAY, enc_payload))
-        time.sleep(0.5)
+        for i in range(1000):
+            raw_data_cell = cell.pack_relayCell_with_digest(relayCmds.DATA, 1, cmd_bytes, exit_fwd_hash)
+            
+            enc_payload = raw_data_cell
+            for i in reversed(range(3)):
+                enc_payload = circ_data["hops"][i]["fwd_cipher"].update(enc_payload)
+            start_time = time.time()
+            guard_sock.sendall(cell.pack_cell(new_circID, cellCmds.RELAY, enc_payload))
+            time.sleep(0.5)
+        print(f"Average delay: {average_time / 1000}")
 
 if __name__ == "__main__":
     init()
