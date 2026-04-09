@@ -213,7 +213,7 @@ def handle_RELAY(circ_data, recvd_relay_cell):
     elif relayCmd == relayCmds.DATA:
         output = data[:length].decode('utf-8')    
         print(output, end="")
-        print(f"Start Time:{time.time()}")
+        
         
 
 def handle_CREATED(circ_data, payload):
@@ -241,7 +241,7 @@ def listen_to_guard(guard_sock):
     try:
         while True:
             raw_cell = guard_sock.recv(512)
-            
+            print(f"End Time:{time.time()}")
             if not raw_cell:
                 break
 
@@ -251,7 +251,7 @@ def listen_to_guard(guard_sock):
             if not circ_data:
                 print(f"[Client] Unknown circuit {circID}")
                 continue
-
+            
             if cellCmd == cellCmds.CREATED:
                 print("[Client] CREATED received")
                 handle_CREATED(circ_data, payload)
@@ -277,8 +277,9 @@ def direct_c2():
             start_time = time.time()
             server_sock.sendall(cmd_bytes)
             response = server_sock.recv(4096)
-            print(response.decode('utf-8'))
             end_time = time.time()
+            print(response.decode('utf-8'))
+    
             delay = end_time - start_time
             total_delay += delay
             
